@@ -1,0 +1,572 @@
+<title>Liftoff Holo Lab</title>
+<meta name="description" content="Shape a rocket hologram with your hands and watch its flight change live.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root { --bg:#03060c; --holo:#58e1ff; --holo-dim:rgba(88,225,255,.35); --accent:#ff7a3d; --meas:#e8f4ff; --ink:#e9f3ff; --muted:#86a0bd; --glass:rgba(8,18,32,.62); --line:rgba(88,225,255,.22);
+    --good:#53f2a6; --warn:#ffd166; --bad:#ff5d6c; --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace; --body:"IBM Plex Sans",Arial,sans-serif; color-scheme:dark; }
+  * { box-sizing:border-box; }
+  html,body { height:100%; margin:0; }
+  body { background:var(--bg); color:var(--ink); font:14px/1.45 var(--body); overflow:hidden; }
+  #gl { position:fixed; inset:0; width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
+  #gl.drag { cursor:grabbing; } #gl.hover { cursor:pointer; }
+  .glass { background:var(--glass); border:1px solid var(--line); border-radius:14px; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); box-shadow:0 0 40px rgba(88,225,255,.06) inset; }
+  .label { font:600 12px/1.2 var(--display); letter-spacing:.16em; text-transform:uppercase; color:var(--muted); }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  button:focus-visible, input:focus-visible { outline:2px solid var(--holo); outline-offset:2px; }
+
+  #top { position:fixed; top:calc(14px + env(safe-area-inset-top,0px)); left:16px; right:16px; display:flex; justify-content:space-between; align-items:center; gap:12px; pointer-events:none; z-index:5; }
+  #top > * { pointer-events:auto; }
+  .brand { display:flex; align-items:baseline; gap:12px; }
+  .brand b { font:700 28px/1 var(--display); letter-spacing:.14em; text-transform:uppercase; }
+  .brand span { font:600 14px/1 var(--display); letter-spacing:.3em; color:var(--holo); text-transform:uppercase; }
+  .toplinks { display:flex; gap:8px; }
+  .toplinks a, .toplinks button { text-decoration:none; font:600 13px/1 var(--display); letter-spacing:.12em; text-transform:uppercase; padding:9px 12px; color:var(--ink); }
+
+  #hud { position:fixed; right:16px; top:calc(70px + env(safe-area-inset-top,0px)); width:250px; padding:14px 16px; display:grid; gap:10px; z-index:4; }
+  .row { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .big { font:500 34px/1 var(--mono); font-variant-numeric:tabular-nums; }
+  .big small, .mid small { font-size:13px; color:var(--muted); margin-left:3px; }
+  .mid { font:500 18px/1.1 var(--mono); font-variant-numeric:tabular-nums; }
+  .bar { height:6px; border-radius:3px; background:rgba(255,255,255,.07); position:relative; overflow:hidden; }
+  .bar i { position:absolute; left:0; top:0; bottom:0; border-radius:3px; transition:width .2s, background .2s; }
+  .sl { display:grid; gap:2px; }
+  .sl .row span:last-child { font:500 12px/1 var(--mono); }
+  input[type=range] { width:100%; accent-color:var(--holo); margin:0; }
+  hr { border:0; border-top:1px solid var(--line); margin:2px 0; width:100%; }
+
+  #con { position:fixed; left:16px; top:calc(70px + env(safe-area-inset-top,0px)); bottom:calc(140px + env(safe-area-inset-bottom,0px)); width:330px; display:flex; flex-direction:column; z-index:4; overflow:hidden; }
+  #con .tabs { display:grid; grid-template-columns:repeat(3,1fr); border-bottom:1px solid var(--line); }
+  #con .tabs button { background:none; border:0; padding:11px 0; font:600 14px/1 var(--display); letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+  #con .tabs button[aria-selected=true] { color:var(--ink); box-shadow:inset 0 -2px 0 var(--holo); }
+  #con .pane { padding:14px 16px; overflow-y:auto; display:grid; gap:12px; align-content:start; flex:1; }
+  #con .pane[hidden] { display:none; }
+  .grp { display:grid; gap:9px; padding-top:10px; border-top:1px solid var(--line); } .grp:first-child { border-top:0; padding-top:0; }
+  .seg { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button { border:0; background:transparent; padding:7px 4px; font-size:12.5px; color:var(--muted); }
+  .seg button[aria-pressed=true] { background:rgba(88,225,255,.16); color:var(--ink); }
+  .lesson { border-left:3px solid var(--holo); background:rgba(88,225,255,.07); border-radius:0 10px 10px 0; padding:10px 12px; font-size:13px; color:#c6d8ec; }
+  .lesson b { color:var(--ink); }
+  .formula { font:500 14px/1.3 var(--mono); color:var(--ink); background:rgba(0,0,0,.3); border:1px solid var(--line); border-radius:8px; padding:7px 10px; display:inline-block; margin:6px 0; }
+  canvas.ch { width:100%; height:150px; display:block; }
+  .legend { display:flex; gap:12px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); }
+  .legend i { display:inline-block; width:14px; border-top:2px solid; vertical-align:middle; margin-right:5px; }
+  #hint { position:fixed; left:50%; top:calc(66px + env(safe-area-inset-top,0px)); transform:translateX(-50%); padding:8px 14px; font-size:13px; color:#c6d8ec; z-index:4; transition:opacity .8s; white-space:nowrap; }
+  #guide { position:fixed; left:16px; top:calc(70px + env(safe-area-inset-top,0px)); width:270px; padding:14px 16px; z-index:4; transition:opacity .6s; }
+  #guide p { margin:6px 0 0; color:#c6d8ec; font-size:13px; }
+  #guide kbd { font:500 11px/1 var(--mono); border:1px solid var(--line); border-radius:4px; padding:2px 5px; color:var(--holo); }
+
+  #cmd { position:fixed; left:50%; bottom:calc(76px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); width:min(760px, calc(100% - 32px)); display:flex; gap:8px; align-items:center; padding:8px; z-index:5; }
+  #cmd input { flex:1; min-width:0; background:transparent; border:0; color:var(--ink); font:15px var(--body); padding:10px 8px; outline:none; }
+  #cmd input::placeholder { color:#6a86a6; }
+  .hbtn { border:1px solid var(--line); background:rgba(88,225,255,.06); border-radius:10px; padding:10px 14px; font:600 14px/1 var(--display); letter-spacing:.12em; text-transform:uppercase; white-space:nowrap; color:var(--ink); }
+  .hbtn:hover:not(:disabled) { border-color:var(--holo); box-shadow:0 0 18px rgba(88,225,255,.25); }
+  .hbtn.go { background:var(--accent); border-color:var(--accent); color:#1b0a02; box-shadow:0 0 24px rgba(255,122,61,.45); }
+  .hbtn.on { border-color:var(--holo); color:var(--holo); }
+  .hbtn:disabled { opacity:.35; cursor:not-allowed; }
+
+  #timeline { position:fixed; left:16px; right:16px; bottom:calc(16px + env(safe-area-inset-bottom,0px)); display:flex; gap:6px; overflow-x:auto; z-index:4; padding-bottom:2px; }
+  .it { flex:none; display:grid; gap:2px; text-align:left; padding:7px 10px; border-radius:9px; border:1px solid var(--line); background:var(--glass); min-width:118px; }
+  .it b { font:500 13px/1 var(--mono); } .it span { font-size:11px; color:var(--muted); }
+  .it.cur { border-color:var(--holo); box-shadow:0 0 14px rgba(88,225,255,.25); }
+  .it.flown b { color:var(--accent); }
+
+  #tags { position:fixed; inset:0; pointer-events:none; z-index:3; }
+  .tag { position:absolute; transform:translate(-50%,-50%); font:600 12px/1.2 var(--mono); padding:4px 8px; border-radius:6px; white-space:nowrap; background:rgba(3,10,20,.72); border:1px solid var(--line); color:var(--holo); }
+  .tag.ap { color:var(--ink); border-color:rgba(255,122,61,.6); }
+  .tag.cp { color:var(--accent); border-color:rgba(255,122,61,.5); }
+  .tag.var { pointer-events:auto; cursor:pointer; color:var(--ink); }
+  .tag.var:hover { box-shadow:0 0 16px currentColor; }
+  .tag.handle { color:#fff; border-color:var(--holo); background:rgba(10,40,60,.85); }
+
+  #count { position:fixed; inset:0; display:grid; place-items:center; pointer-events:none; z-index:6; font:700 min(34vw,340px)/1 var(--display); color:var(--accent); text-shadow:0 0 60px rgba(255,122,61,.7); opacity:0; }
+  #result { position:fixed; left:50%; top:calc(76px + env(safe-area-inset-top,0px)); transform:translateX(-50%); width:min(560px, calc(100% - 32px)); padding:16px 18px; z-index:6; display:none; }
+  #result.show { display:grid; gap:10px; animation:pop .35s ease; }
+  @keyframes pop { from { opacity:0; transform:translate(-50%,-8px); } to { opacity:1; transform:translate(-50%,0); } }
+  .cmp { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .cmp div { display:grid; gap:2px; }
+  #toast { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); padding:10px 16px; z-index:7; opacity:0; transition:.25s; pointer-events:none; font-size:13.5px; }
+  #toast.show { opacity:1; }
+  @media (max-width: 1100px) { #con { width:290px; } } @media (max-width: 860px) { #guide, #con, #hint { display:none; } #hud { width:200px; top:auto; bottom:150px; } #hud .sl { display:none; } }
+  @media (prefers-reduced-motion: reduce) { #result.show { animation:none; } }
+</style>
+
+<canvas id="gl" aria-label="Holographic rocket workshop"></canvas>
+<div id="tags"></div>
+
+<header id="top">
+  <div class="brand"><b>Liftoff</b><span>Holo Lab</span></div>
+  <div class="toplinks glass"><a href="index.html" title="Design any vehicle: rockets, cars, planes, drones, boats, subs">Aero Studio ↗</a><a href="mission.html" title="Mission Control: the prediction loop and logbook">Mission Control ↗</a><button type="button" id="btn-reset" title="Reset the rocket">Reset</button></div>
+</header>
+
+<div id="hint" class="glass">Drag a glowing handle to reshape the rocket, or use the Build panel for exact values.</div>
+<aside id="con" class="glass" aria-label="Engineering console">
+  <div class="tabs" role="tablist"><button role="tab" aria-selected="true" data-p="build">Build</button><button role="tab" aria-selected="false" data-p="data">Data</button><button role="tab" aria-selected="false" data-p="learn">Learn</button></div>
+  <div class="pane" id="p-build"></div>
+  <div class="pane" id="p-data" hidden>
+    <div class="label">Altitude vs. time</div><canvas class="ch" id="ch-alt"></canvas>
+    <div class="legend"><span><i style="border-color:#ff7a3d"></i>Prediction</span><span><i style="border-color:#58e1ff;border-top-style:dashed"></i>Earlier designs</span><span><i style="border-color:#e8f4ff;border-top-style:dotted"></i>Measured</span></div>
+    <div class="label">Speed vs. time</div><canvas class="ch" id="ch-spd"></canvas>
+    <div id="d-stats" class="lesson"></div>
+  </div>
+  <div class="pane" id="p-learn" hidden><div id="learn-body"></div>
+    <div class="lesson"><div class="label" style="color:var(--holo)">The physics</div>Drag grows with the square of speed:<br><span class="formula">D = ½ · ρ · v² · Cd · A</span><br>Cd captures the rocket’s shape, fins and surface. It is the hardest number to know in advance, so Liftoff measures it from every flight.</div>
+    <div class="lesson"><div class="label" style="color:var(--holo)">Stability</div>The rocket is stable when the <b style="color:#ff7a3d">centre of pressure</b> (orange ring) sits behind the <b>centre of gravity</b> (white ring). Aim for 1–2.5 body diameters.</div>
+  </div>
+</aside>
+
+<section id="hud" class="glass" aria-label="Flight readouts">
+  <div class="label">Predicted apogee</div>
+  <div class="big" id="h-ap">—</div>
+  <div class="row"><span class="label">Flight time</span><span class="mid" id="h-t">—</span></div>
+  <div class="row"><span class="label">Stability</span><span class="mid" id="h-st">—</span></div>
+  <div class="bar"><i id="h-stbar"></i></div>
+  <div class="row"><span class="label">Drag Cd</span><span class="mid" id="h-cd">—</span></div>
+  <div class="row"><span class="label">Mass</span><span class="mid" id="h-m">—</span></div>
+  <hr>
+  <div class="sl"><div class="row"><span class="label">Launch speed</span><span id="v-v0"></span></div><input type="range" id="s-v0" min="5" max="35" step="0.5" aria-label="Launch speed"></div>
+  <div class="sl"><div class="row"><span class="label">Launch angle</span><span id="v-angle"></span></div><input type="range" id="s-angle" min="60" max="90" step="1" aria-label="Launch angle"></div>
+  <div class="sl"><div class="row"><span class="label">Wind</span><span id="v-wind"></span></div><input type="range" id="s-wind" min="0" max="10" step="0.5" aria-label="Wind speed"></div>
+</section>
+
+<div id="cmd" class="glass">
+  <button class="hbtn" id="btn-mic" type="button" title="Speak">🎙</button>
+  <input id="ask" placeholder="Tell Liftoff: “make it reach 20 metres”, “tiny fins”, “as stable as possible”" aria-label="Tell Liftoff what to change">
+  <button class="hbtn" id="btn-explore" type="button" title="Explore alternatives (E)">Explore</button>
+  <button class="hbtn go" id="btn-launch" type="button" title="Launch (Space)">Launch</button>
+</div>
+
+<nav id="timeline" aria-label="Design iterations"></nav>
+<div id="count" aria-hidden="true"></div>
+<section id="result" class="glass" aria-live="polite"></section>
+<div id="toast" class="glass" role="status"></div>
+
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+const fmt = (v, d = 1) => Number.isFinite(v) ? v.toFixed(d) : "—";
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+const wrapA = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+let toastT; const toast = m => { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 1800); };
+
+/* ================= Physics (same model as the ground station) ================= */
+const G = 9.80665, SAMPLE = 0.01;
+const DEFAULT = { mode: "stomp", v0: 20, angle: 85, wind: 2, bodyLen: 30, dia: 5, nose: "ogive", noseLen: 8, finN: 4, cr: 7, ct: 3, span: 5, sweep: 3, massAf: 15, massFc: 20, fcPos: 24 };
+const LIM = { bodyLen: [10, 60], dia: [2, 8], noseLen: [2, 15], cr: [1, 12], ct: [0, 10], span: [0.5, 10], sweep: [0, 10], massAf: [5, 150], massFc: [0, 60], fcPos: [5, 95] };
+function aero(p) {
+  const Ln = p.noseLen / 100, Lb = p.bodyLen / 100, d = p.dia / 100, R = d / 2, Ltot = Ln + Lb, A = Math.PI * R * R;
+  const cr = p.cr / 100, ct = p.ct / 100, s = p.span / 100, xs = p.sweep / 100, N = +p.finN;
+  const Xn = (p.nose === "cone" ? 0.666 : 0.466) * Ln, lf = Math.sqrt(s * s + (xs + ct / 2 - cr / 2) ** 2);
+  const CNf = (1 + R / (s + R)) * (4 * N * (s / d) ** 2) / (1 + Math.sqrt(1 + (2 * lf / (cr + ct)) ** 2));
+  const Xb = Ltot - cr, Xf = Xb + xs * (cr + 2 * ct) / (3 * (cr + ct)) + ((cr + ct) - cr * ct / (cr + ct)) / 6;
+  const CNn = 2, cnTot = CNn + CNf, CP = (CNn * Xn + CNf * Xf) / cnTot;
+  const cdGeom = 0.32 + (p.nose === "cone" ? 0.04 : 0) + 0.02 * (N * s * (cr + ct) / 2) / A + 0.005 * (Ltot / d);
+  return { Ln, Lb, d, R, Ltot, A, cr, ct, s, xs, N, Xn, CNf, Xf, Xb, CNn, cnTot, CP, cdGeom };
+}
+function massProps(p, a) {
+  const af = p.massAf / 1000, fc = p.massFc / 1000;
+  const parts = [[af * .2, a.Ln * .6], [af * .6, a.Ln + a.Lb / 2], [af * .2, a.Xb + a.cr * .45], [fc, a.Ltot * p.fcPos / 100]];
+  let m = 0, mx = 0; for (const [mi, xi] of parts) { m += mi; mx += mi * xi; }
+  const cg = mx / m; let I = af * .6 * a.Lb * a.Lb / 12; for (const [mi, xi] of parts) I += mi * (xi - cg) ** 2;
+  return { m, cg, I: Math.max(I, 1e-6) };
+}
+function simulate(p, o = {}) {
+  const a = aero(p), mp = massProps(p, a), cd = o.cd ?? a.cdGeom * S.cal, wind = o.wind ?? p.wind, v0 = o.v0 ?? p.v0, dt = o.dt ?? 0.002;
+  const th0 = p.angle * Math.PI / 180, rail = 0.3, { m, cg, I } = mp;
+  function der(s) {
+    const [x, z, vx, vz, th, om] = s, rho = 1.225 * Math.exp(-Math.max(z, 0) / 8500), vrx = vx - wind, vrz = vz, V = Math.hypot(vrx, vrz);
+    const bx = Math.cos(th), bz = Math.sin(th); let Fx = 0, Fz = 0, M = 0;
+    if (V > 1e-6) { const al = wrapA(th - Math.atan2(vrz, vrx)), q = .5 * rho * V * V, D = q * a.A * (cd + 1.5 * Math.sin(al) ** 2);
+      Fx -= D * vrx / V; Fz -= D * vrz / V; const Nn = q * a.A * a.cnTot * Math.sin(al); Fx += Nn * -bz; Fz += Nn * bx;
+      M = -(a.CP - cg) * Nn - .5 * rho * V * a.A * (a.CNn * (a.Xn - cg) ** 2 + a.CNf * (a.Xf - cg) ** 2) * om; }
+    Fz -= m * G; return [vx, vz, Fx / m, Fz / m, om, M / I];
+  }
+  let s = [rail * Math.cos(th0), rail * Math.sin(th0), v0 * Math.cos(th0), v0 * Math.sin(th0), th0, 0], t = 0, next = 0; const out = [];
+  const add = (u, k, h) => u.map((v, i) => v + k[i] * h);
+  while (t < 60) {
+    if (t + 1e-9 >= next) { out.push({ t, x: s[0], z: s[1], v: Math.hypot(s[2], s[3]), th: s[4] }); next += SAMPLE; }
+    const k1 = der(s), k2 = der(add(s, k1, dt / 2)), k3 = der(add(s, k2, dt / 2)), k4 = der(add(s, k3, dt));
+    const ns = s.map((v, i) => v + dt / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i])); t += dt;
+    if (ns[1] < 0 && t > .05) { const f = s[1] / (s[1] - ns[1]); out.push({ t: t - dt + dt * f, x: s[0] + (ns[0] - s[0]) * f, z: 0, v: Math.hypot(ns[2], ns[3]), th: ns[4] }); break; }
+    s = ns;
+  }
+  let ap = out[0]; for (const r of out) if (r.z > ap.z) ap = r;
+  return { samples: out, apogee: ap.z, apX: ap.x, tApogee: ap.t, tFlight: out[out.length - 1].t, cd, a, m: mp, cal: (a.CP - cg) / a.d };
+}
+const zAt = (sm, t) => { const i = t / SAMPLE, i0 = Math.floor(i); if (i0 >= sm.length - 1) return sm[sm.length - 1].z; return sm[i0].z + (sm[i0 + 1].z - sm[i0].z) * (i - i0); };
+function fitCd(d, pts, tEnd) {
+  const P = pts.filter(p => p.t <= tEnd);
+  const sse = cd => { const r = simulate(d, { cd, dt: .003 }); let e = 0; for (const p of P) { const q = zAt(r.samples, p.t) - p.z; e += q * q; } return e; };
+  let lo = .05, hi = 3; const gr = (Math.sqrt(5) - 1) / 2; let c = hi - gr * (hi - lo), dd = lo + gr * (hi - lo), fc = sse(c), fd = sse(dd);
+  for (let i = 0; i < 28; i++) { if (fc < fd) { hi = dd; dd = c; fd = fc; c = hi - gr * (hi - lo); fc = sse(c); } else { lo = c; c = dd; fc = fd; dd = lo + gr * (hi - lo); fd = sse(dd); } }
+  return (lo + hi) / 2;
+}
+function fitCal(hist) {  // one drag calibration shared by every design, fitted to ALL flights so far
+  const sse = k => { let e = 0; for (const h of hist) { const r = simulate(h.d, { cd: aero(h.d).cdGeom * k, dt: .003 }); for (const p of h.pts) if (p.t <= h.tEnd) { const q = zAt(r.samples, p.t) - p.z; e += q * q; } } return e; };
+  let lo = .2, hi = 4; const gr = (Math.sqrt(5) - 1) / 2; let c = hi - gr * (hi - lo), dd = lo + gr * (hi - lo), fc = sse(c), fd = sse(dd);
+  for (let i = 0; i < 26; i++) { if (fc < fd) { hi = dd; dd = c; fd = fc; c = hi - gr * (hi - lo); fc = sse(c); } else { lo = c; c = dd; fc = fd; dd = lo + gr * (hi - lo); fd = sse(dd); } }
+  return (lo + hi) / 2;
+}
+const HIDDEN = 1.35 + Math.random() * .25; // the real world's extra drag, unknown to the model
+
+/* ================= State ================= */
+const S = { hist: [], d: { ...DEFAULT }, cal: 1, pred: null, ghosts: [], iters: [], cur: -1, variants: null, phase: "idle", flight: null, morph: null, t0: 0 };
+function recompute(fast) { S.pred = simulate(S.d, { dt: fast ? .004 : .002 }); }
+
+/* ================= Three.js scene ================= */
+const cv = $("gl"), R3 = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); R3.setPixelRatio(Math.min(2, devicePixelRatio || 1)); R3.setClearColor(0x03060c);
+const scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x03060c, 0.07);
+const cam = new THREE.PerspectiveCamera(42, 1, .01, 200);
+const orbit = { az: -.18, el: .22, dist: 6.2, target: new THREE.Vector3(-0.45, 1.05, 0), goal: null };
+const HOLO = new THREE.Color(0x58e1ff), ORANGE = new THREE.Color(0xff7a3d);
+const U = { time: { value: 0 } };
+function holoMat(color, op = 1) {
+  return new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { time: U.time, color: { value: color.clone() }, op: { value: op } },
+    vertexShader: `varying vec3 vN; varying vec3 vV; varying float vY; void main(){ vec4 mv = modelViewMatrix*vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); vY = (modelMatrix*vec4(position,1.0)).y; gl_Position = projectionMatrix*mv; }`,
+    fragmentShader: `uniform vec3 color; uniform float time; uniform float op; varying vec3 vN; varying vec3 vV; varying float vY; void main(){ float f = pow(1.0-abs(dot(vN,vV)),2.2); float scan = 0.5+0.5*sin(vY*90.0-time*4.0); float a = (0.06+f*0.85+scan*0.05)*op; gl_FragColor = vec4(color*(0.6+f), a); }` });
+}
+function glowTex() { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d"), r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(.3, "rgba(255,255,255,.5)"); r.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); }
+const GLOW = glowTex();
+
+// floor + light rings
+const floor = new THREE.GridHelper(24, 96, 0x1d6f86, 0x0b2a38); floor.material.transparent = true; floor.material.opacity = .45; scene.add(floor);
+function ring(r, color, op) { const m = new THREE.Mesh(new THREE.RingGeometry(r * .96, r, 96), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false })); m.rotation.x = -Math.PI / 2; m.position.y = .002; return m; }
+const SENS = .35; // handle sensitivity: 1 = hand-tracks the hologram, lower = finer control
+const BENCH = new THREE.Vector3(-1.2, 0, 0), PAD = new THREE.Vector3(.35, 0, 0), FS = .11, RS = 4;
+const benchG = new THREE.Group(); benchG.position.copy(BENCH); scene.add(benchG);
+[.55, .8, .83].forEach((r, i) => benchG.add(ring(r, 0x58e1ff, [.35, .18, .5][i])));
+const flightG = new THREE.Group(); flightG.position.copy(PAD); scene.add(flightG);
+flightG.add(ring(.18, 0xff7a3d, .6)); flightG.add(ring(.3, 0x58e1ff, .25));
+// stars
+{ const n = 900, g = new THREE.BufferGeometry(), p = new Float32Array(n * 3); for (let i = 0; i < n; i++) { const r = 40 + Math.random() * 40, th = Math.random() * 6.28, ph = Math.random() * 1.3; p.set([r * Math.cos(th) * Math.cos(ph), 2 + r * Math.sin(ph), r * Math.sin(th) * Math.cos(ph)], i * 3); }
+  g.setAttribute("position", new THREE.BufferAttribute(p, 3)); scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xbcd6ff, size: .18, map: GLOW, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }))); }
+
+/* ---------- rocket hologram ---------- */
+let rocket = null, cgRing = null, cpRing = null; const handles = [];
+function rocketGeom(d) {
+  const a = aero(d), R = a.R, pts = [new THREE.Vector2(0, 0), new THREE.Vector2(R, 0), new THREE.Vector2(R, a.Lb)];
+  for (let i = 1; i <= 28; i++) { const s = i / 28, r = d.nose === "cone" ? R * (1 - s) : R * (1 - s * s); pts.push(new THREE.Vector2(Math.max(r, 1e-4), a.Lb + s * a.Ln)); }
+  const body = new THREE.LatheGeometry(pts, 48);
+  const sh = new THREE.Shape(); sh.moveTo(R * .98, 0); sh.lineTo(R * .98, a.cr); sh.lineTo(R + a.s, a.cr - a.xs); sh.lineTo(R + a.s, a.cr - a.xs - a.ct); sh.closePath();
+  const th = Math.max(.002, a.d * .05), fin = new THREE.ExtrudeGeometry(sh, { depth: th, bevelEnabled: false }); fin.translate(0, 0, -th / 2);
+  return { a, body, fin };
+}
+function buildRocket() {
+  if (rocket) benchG.remove(rocket); handles.length = 0;
+  const d = S.d, { a, body, fin } = rocketGeom(d), g = new THREE.Group(); g.scale.setScalar(RS);
+  const unstable = S.pred.cal < 1, col = unstable ? new THREE.Color(0xff5d6c) : HOLO;
+  g.add(new THREE.Mesh(body, holoMat(col, .9)));
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(body, 25), new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: .5, blending: THREE.AdditiveBlending })));
+  for (let i = 0; i < a.N; i++) { const f = new THREE.Mesh(fin, holoMat(col, 1)); f.rotation.y = i * 2 * Math.PI / a.N; g.add(f);
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(fin), new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: .9, blending: THREE.AdditiveBlending })); e.rotation.y = f.rotation.y; g.add(e); }
+  if (d.massFc > 0) { const bh = Math.min(.045, a.Ltot * .12), box = new THREE.Mesh(new THREE.BoxGeometry(a.R * .95, bh, a.R * .4), new THREE.MeshBasicMaterial({ color: 0x3aa0ff, transparent: true, opacity: .85, blending: THREE.AdditiveBlending }));
+    box.position.y = a.Ltot - a.Ltot * d.fcPos / 100; g.add(box); }
+  const cg = S.pred.m.cg, L = a.Ltot;
+  cgRing = new THREE.Mesh(new THREE.TorusGeometry(a.R * 1.6, a.R * .07, 8, 64), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .9 })); cgRing.rotation.x = Math.PI / 2; cgRing.position.y = L - cg; g.add(cgRing);
+  cpRing = new THREE.Mesh(new THREE.TorusGeometry(a.R * 1.6, a.R * .07, 8, 64), new THREE.MeshBasicMaterial({ color: 0xff7a3d, transparent: true, opacity: .95 })); cpRing.rotation.x = Math.PI / 2; cpRing.position.y = L - a.CP; g.add(cpRing);
+  // handles: [key, local position, label]
+  const H = [["nose", [0, L + .012, 0], "Nose"], ["body", [a.R * 1.05, a.Lb, 0], "Body"], ["dia", [-a.R * 1.02, a.Lb * .55, 0], "Diameter"],
+             ["finTip", [a.R + a.s, a.cr - a.xs, 0], "Fin"], ["finRoot", [a.R, a.cr, 0], "Root"]];
+  if (d.massFc > 0) H.push(["fc", [-a.R * .1, L - L * d.fcPos / 100, a.R * .6], "Computer"]);
+  for (const [k, p, l] of H) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOW, color: k === "fc" ? 0x7cc4ff : 0x9ff3ff, transparent: true, depthTest: false, blending: THREE.AdditiveBlending }));
+    s.position.set(...p); s.scale.setScalar(.04); s.userData = { key: k, label: l }; g.add(s); handles.push(s); }
+  rocket = g; benchG.add(g);
+}
+
+/* ---------- flight volume ---------- */
+let predTube = null, ghostG = new THREE.Group(), varG = new THREE.Group(), measPts = null, flyer = null, apDot = null, railLine = null;
+flightG.add(ghostG, varG);
+const toV = s => new THREE.Vector3(s.x * FS, s.z * FS, 0);
+function tubeFrom(samples, r = .012) { const pts = samples.filter((_, i) => i % 2 === 0).map(toV); if (pts.length < 2) pts.push(pts[0].clone().add(new THREE.Vector3(0, .01, 0)));
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.min(220, pts.length * 2), r, 6, false); }
+const lineFrom = (samples, color, op) => new THREE.Line(new THREE.BufferGeometry().setFromPoints(samples.map(toV)), new THREE.LineBasicMaterial({ color, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false }));
+function buildFlight(samples) {
+  samples = samples || S.pred.samples;
+  if (predTube) { flightG.remove(predTube); predTube.geometry.dispose(); }
+  predTube = new THREE.Mesh(tubeFrom(samples), new THREE.MeshBasicMaterial({ color: 0xff7a3d, transparent: true, opacity: .95, blending: THREE.AdditiveBlending, depthWrite: false })); flightG.add(predTube);
+  let ap = samples[0]; for (const s of samples) if (s.z > ap.z) ap = s;
+  if (!apDot) { apDot = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOW, color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })); apDot.scale.setScalar(.14); flightG.add(apDot); }
+  apDot.position.copy(toV(ap)); tags.ap.world = apDot.position.clone().add(PAD).add(new THREE.Vector3(0, .16, 0)); tags.ap.el.textContent = `APOGEE ${fmt(ap.z, 1)} m`;
+  if (railLine) flightG.remove(railLine); const th = S.d.angle * Math.PI / 180;
+  railLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(Math.cos(th) * .25, Math.sin(th) * .25, 0)]), new THREE.LineBasicMaterial({ color: 0xffffff })); flightG.add(railLine);
+}
+function pushGhost(samples) { S.ghosts.push(samples); if (S.ghosts.length > 8) S.ghosts.shift(); const l = lineFrom(samples, 0x58e1ff, .5); ghostG.add(l); while (ghostG.children.length > 7) ghostG.remove(ghostG.children[0]);
+  ghostG.children.forEach((c, i, arr) => c.material.opacity = .08 + .42 * (i + 1) / arr.length); }
+// wind streamers
+const WN = 260, windGeo = new THREE.BufferGeometry(), windPos = new Float32Array(WN * 3);
+for (let i = 0; i < WN; i++) windPos.set([-.6 + Math.random() * 3.2, .05 + Math.random() * 2.6, -.9 + Math.random() * 1.8], i * 3);
+windGeo.setAttribute("position", new THREE.BufferAttribute(windPos, 3));
+const windPts = new THREE.Points(windGeo, new THREE.PointsMaterial({ color: 0x58e1ff, size: .035, map: GLOW, transparent: true, opacity: .45, depthWrite: false, blending: THREE.AdditiveBlending })); flightG.add(windPts);
+// exhaust particles
+const EX = 180, exGeo = new THREE.BufferGeometry(), exPos = new Float32Array(EX * 3).fill(-99), exLife = new Float32Array(EX); exGeo.setAttribute("position", new THREE.BufferAttribute(exPos, 3));
+const exPts = new THREE.Points(exGeo, new THREE.PointsMaterial({ color: 0xffa060, size: .09, map: GLOW, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); flightG.add(exPts); let exI = 0;
+
+/* ---------- screen-space tags ---------- */
+const tags = {}; function mkTag(key, cls) { const el = document.createElement("div"); el.className = "tag " + cls; $("tags").appendChild(el); tags[key] = { el, world: null }; return tags[key]; }
+mkTag("ap", "ap"); mkTag("cg", ""); mkTag("cp", "cp"); mkTag("handle", "handle"); tags.handle.el.hidden = true;
+function projTag(t) { if (!t.world || t.el.hidden) return; const v = t.world.clone().project(cam); if (v.z > 1) { t.el.style.opacity = 0; return; } t.el.style.opacity = 1; t.el.style.left = ((v.x + 1) / 2 * innerWidth) + "px"; t.el.style.top = ((1 - v.y) / 2 * innerHeight) + "px"; }
+function placeRocketTags() { const a = S.pred.a, L = a.Ltot, w = new THREE.Vector3();
+  tags.cg.el.textContent = `CG ${fmt(S.pred.m.cg * 100, 1)} cm`; tags.cp.el.textContent = `CP ${fmt(a.CP * 100, 1)} cm`;
+  tags.cg.world = new THREE.Vector3(-a.R * 5, L - S.pred.m.cg, 0).multiplyScalar(RS).add(BENCH).add(new THREE.Vector3(-.28, 0, 0));
+  tags.cp.world = new THREE.Vector3(a.R * 5, L - a.CP, 0).multiplyScalar(RS).add(BENCH).add(new THREE.Vector3(.28, 0, 0)); }
+
+/* ================= HUD ================= */
+function hud() {
+  const p = S.pred; $("h-ap").innerHTML = `${fmt(p.apogee, 1)}<small>m</small>`; $("h-t").innerHTML = `${fmt(p.tFlight, 2)}<small>s</small>`;
+  $("h-cd").textContent = fmt(p.cd, 2) + (S.cal !== 1 ? ` ×${fmt(S.cal, 2)}` : ""); $("h-m").innerHTML = `${fmt(p.m.m * 1000, 0)}<small>g</small>`;
+  const c = p.cal, st = c < 0 ? ["Unstable", "--bad"] : c < 1 ? ["Marginal", "--warn"] : ["Stable", "--good"];
+  $("h-st").innerHTML = `${fmt(c, 2)}<small>cal</small>`; const b = $("h-stbar"); b.style.width = clamp((c + 1) / 5 * 100, 3, 100) + "%"; b.style.background = `var(${st[1]})`; $("h-st").title = st[0];
+  syncConsole(); drawCharts();
+  for (const k of ["v0", "angle", "wind"]) { $("s-" + k).value = S.d[k]; $("v-" + k).textContent = fmt(S.d[k], k === "angle" ? 0 : 1) + (k === "angle" ? "°" : " m/s"); }
+}
+function timeline() {
+  $("timeline").innerHTML = S.iters.map((it, i) => `<button type="button" class="it ${i === S.cur ? "cur" : ""} ${it.flown ? "flown" : ""}" data-i="${i}"><b>${fmt(it.ap, 1)} m${it.flown ? ` · ${it.err >= 0 ? "+" : ""}${fmt(it.err, 0)}%` : ""}</b><span>#${i + 1} · ${it.note}</span></button>`).join("");
+  const el = $("timeline"); el.scrollLeft = el.scrollWidth;
+}
+$("timeline").addEventListener("click", e => { const b = e.target.closest(".it"); if (!b) return; const it = S.iters[+b.dataset.i]; S.cur = +b.dataset.i; setDesign(it.d, false); timeline(); });
+function commit(note) { S.iters.push({ d: { ...S.d }, ap: S.pred.apogee, note }); S.cur = S.iters.length - 1; timeline(); }
+function setDesign(d, withGhost = true, note) {
+  if (withGhost && S.pred) pushGhost(S.pred.samples);
+  S.d = { ...d }; recompute(); buildRocket(); buildFlight(); placeRocketTags(); hud(); clearVariants(); if (note) commit(note);
+}
+for (const k of ["v0", "angle", "wind"]) {
+  const s = $("s-" + k); let started = false;
+  s.addEventListener("input", () => { if (!started) { pushGhost(S.pred.samples); started = true; } S.d[k] = +s.value; recompute(true); buildFlight(); hud(); });
+  s.addEventListener("change", () => { started = false; recompute(); buildFlight(); commit(`${k === "v0" ? "speed" : k} ${fmt(S.d[k], k === "angle" ? 0 : 1)}`); });
+}
+
+/* ================= Direct manipulation ================= */
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(); let drag = null, orbitDrag = null, hover = null;
+function setMouse(e) { mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(mouse, cam); }
+function pickHandle() { const hits = ray.intersectObjects(handles, false); return hits[0]?.object || null; }
+cv.addEventListener("pointerdown", e => {
+  if (S.phase === "flying" || S.phase === "countdown") return;
+  setMouse(e); const h = pickHandle(); cv.setPointerCapture(e.pointerId);
+  if (h) { const wp = h.getWorldPosition(new THREE.Vector3()), n = cam.getWorldDirection(new THREE.Vector3()).negate();
+    drag = { h, key: h.userData.key, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n, wp), start: wp.clone(), d0: { ...S.d }, sx: e.clientX, sy: e.clientY, live: false };
+    cv.classList.add("drag"); $("hint").style.opacity = 0; }
+  else orbitDrag = { x: e.clientX, y: e.clientY };
+});
+cv.addEventListener("pointermove", e => {
+  setMouse(e);
+  if (drag) {
+    const p = new THREE.Vector3(); if (!ray.ray.intersectPlane(drag.plane, p)) return;
+    if (!drag.live) { if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 6) return; drag.live = true; pushGhost(S.pred.samples); }
+    const dw = p.clone().sub(drag.start).divideScalar(RS).multiplyScalar(100 * SENS), d = { ...drag.d0 }, k = drag.key; // delta in cm, damped
+    if (k === "nose") d.noseLen = d.noseLen + dw.y;
+    if (k === "body") d.bodyLen = d.bodyLen + dw.y;
+    if (k === "dia") d.dia = d.dia - 2 * dw.x;
+    if (k === "finTip") { d.span = d.span + dw.x; d.sweep = d.sweep - dw.y; }
+    if (k === "finRoot") d.cr = d.cr + dw.y;
+    if (k === "fc") { const L = (d.noseLen + d.bodyLen); d.fcPos = d.fcPos - dw.y / L * 100; }
+    for (const key in LIM) d[key] = clamp(Math.round(d[key] * (key === "fcPos" || key === "massAf" || key === "massFc" ? 1 : 2)) / (key === "fcPos" || key === "massAf" || key === "massFc" ? 1 : 2), ...LIM[key]);
+    if (JSON.stringify(d) === drag.lastJ) return; drag.lastJ = JSON.stringify(d);
+    S.d = d; recompute(true); buildRocket(); buildFlight(); placeRocketTags(); hud();
+    const lab = { nose: `NOSE ${fmt(d.noseLen, 1)} cm`, body: `BODY ${fmt(d.bodyLen, 1)} cm`, dia: `Ø ${fmt(d.dia, 1)} cm`, finTip: `SPAN ${fmt(d.span, 1)} · SWEEP ${fmt(d.sweep, 1)} cm`, finRoot: `ROOT ${fmt(d.cr, 1)} cm`, fc: `COMPUTER ${fmt(d.fcPos, 0)}% FROM NOSE` }[k];
+    tags.handle.el.hidden = false; tags.handle.el.textContent = `${lab}  →  ${fmt(S.pred.apogee, 1)} m`; tags.handle.world = p.clone().add(new THREE.Vector3(0, .18, 0));
+    return;
+  }
+  if (orbitDrag) { orbit.az -= (e.clientX - orbitDrag.x) * .0025; orbit.el = clamp(orbit.el + (e.clientY - orbitDrag.y) * .002, -.05, 1.2); orbitDrag = { x: e.clientX, y: e.clientY }; orbit.goal = null; return; }
+  const h = pickHandle(); if (h !== hover) { if (hover) hover.scale.setScalar(.04); hover = h; if (h) h.scale.setScalar(.055); cv.classList.toggle("hover", !!h); }
+});
+cv.addEventListener("pointerup", () => {
+  if (drag && !drag.live) { drag = null; cv.classList.remove("drag"); }
+  if (drag) { const names = { nose: "nose", body: "body", dia: "diameter", finTip: "fin shape", finRoot: "root chord", fc: "computer" };
+    recompute(); buildRocket(); buildFlight(); commit(names[drag.key]); tags.handle.el.hidden = true; drag = null; cv.classList.remove("drag"); }
+  orbitDrag = null;
+});
+cv.addEventListener("wheel", e => { e.preventDefault(); orbit.dist = clamp(orbit.dist * (1 + Math.sign(e.deltaY) * .035), 2.2, 16); orbit.goal = null; }, { passive: false });
+
+/* ================= Explore: AI-style alternatives ================= */
+const VAR = [["Bigger fins", d => ({ span: d.span + 2, cr: d.cr + 1 }), 0xb18cff], ["Lighter", d => ({ massAf: Math.max(5, d.massAf * .6) }), 0x53f2a6],
+  ["Cone nose", d => ({ nose: d.nose === "cone" ? "ogive" : "cone" }), 0xffd166], ["Longer", d => ({ bodyLen: d.bodyLen + 10 }), 0xff6fb5], ["Slimmer", d => ({ dia: Math.max(2, d.dia - 1.2) }), 0x7aa7ff]];
+function clearVariants() { varG.clear(); (S.variants || []).forEach(v => v.tag.el.remove()); S.variants = null; $("btn-explore").classList.remove("on"); }
+function explore() {
+  if (S.variants) { clearVariants(); return; }
+  S.variants = VAR.map(([name, fn, color], vi) => { const d = { ...S.d, ...fn(S.d) }, p = simulate(d, { dt: .004 }); const l = lineFrom(p.samples, color, .9); varG.add(l);
+    const el = document.createElement("div"); el.className = "tag var"; el.style.color = "#" + color.toString(16).padStart(6, "0"); const dd = p.apogee - S.pred.apogee;
+    el.innerHTML = `${name} · ${fmt(p.apogee, 1)} m <span style="opacity:.7">(${dd >= 0 ? "+" : ""}${fmt(dd, 1)})</span>${p.cal < 1 ? " ⚠" : ""}`; el.title = p.cal < 1 ? "Unstable" : "Adopt this design"; $("tags").appendChild(el);
+    let ap = p.samples[0]; for (const s of p.samples) if (s.z > ap.z) ap = s;
+    const v = { name, d, tag: { el, world: toV(ap).add(PAD).add(new THREE.Vector3(0, .12 + vi * .16, 0)) } }; el.addEventListener("click", () => { setDesign(d, true, name.toLowerCase()); toast(`Adopted: ${name}`); }); return v; });
+  $("btn-explore").classList.add("on"); toast("Five alternatives. Click one to adopt it.");
+}
+$("btn-explore").addEventListener("click", explore);
+
+/* ================= Launch → data → correction ================= */
+function launch() {
+  if (S.phase === "countdown" || S.phase === "flying") return;
+  clearVariants(); $("result").classList.remove("show"); if (measPts) { flightG.remove(measPts); measPts = null; }
+  S.phase = "countdown"; const cnt = $("count"); let n = 3;
+  orbit.goal = { target: new THREE.Vector3(PAD.x + S.pred.apX * FS * .5, Math.max(.8, S.pred.apogee * FS * .55), 0), dist: Math.max(4, S.pred.apogee * FS * 2.6), az: .05, el: .12 };
+  const tick = () => { if (n > 0) { cnt.textContent = n; cnt.style.transition = "none"; cnt.style.opacity = 1; cnt.style.transform = "scale(1)"; requestAnimationFrame(() => { cnt.style.transition = "opacity .65s, transform .65s"; cnt.style.opacity = 0; cnt.style.transform = "scale(1.6)"; }); n--; setTimeout(tick, 700); }
+    else { const a = aero(S.d), truth = simulate(S.d, { cd: a.cdGeom * HIDDEN, v0: S.d.v0 * (1 + gauss() * .01), wind: Math.max(0, S.d.wind + gauss() * .5), dt: .002 });
+      const pts = truth.samples.map(s => ({ t: s.t, x: s.x, z: Math.max(0, s.z + gauss() * .12) }));
+      S.flight = { truth, pts, pred: S.pred, d: { ...S.d } }; S.phase = "flying"; S.t0 = performance.now();
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pts.length * 3).fill(-99), 3));
+      measPts = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xe8f4ff, size: .06, map: GLOW, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); flightG.add(measPts);
+      if (!flyer) { flyer = new THREE.Group(); flightG.add(flyer); } flyer.clear(); const r = rocketGeom(S.d); const fm = holoMat(HOLO, 1); const mesh = new THREE.Group(); mesh.add(new THREE.Mesh(r.body, fm));
+      for (let i = 0; i < r.a.N; i++) { const f = new THREE.Mesh(r.fin, fm); f.rotation.y = i * 2 * Math.PI / r.a.N; mesh.add(f); } mesh.scale.setScalar(1.6); mesh.position.y = -r.a.Ltot * .8; flyer.add(mesh); flyer.visible = true; } };
+  tick();
+}
+function landed() {
+  const f = S.flight, sm = []; for (let i = 2; i < f.pts.length - 2; i++) sm.push((f.pts[i - 2].z + f.pts[i - 1].z + f.pts[i].z + f.pts[i + 1].z + f.pts[i + 2].z) / 5);
+  f.meas = Math.max(...sm); f.err = (f.meas - f.pred.apogee) / f.pred.apogee * 100; S.phase = "landed";
+  S.hist.push({ d: f.d, pts: f.pts.filter((_, i) => i % 2 === 0), tEnd: f.truth.tFlight });
+  const it = S.iters[S.cur]; if (it) { it.flown = true; it.err = f.err; } timeline();
+  const cls = Math.abs(f.err) <= 4 ? "--good" : Math.abs(f.err) <= 10 ? "--warn" : "--bad";
+  $("result").innerHTML = `<div class="label">Flight data is in · virtual test range</div>
+    <div class="cmp"><div><span class="label">Predicted</span><span class="mid" style="color:var(--accent)">${fmt(f.pred.apogee, 1)} m</span></div><div><span class="label">Measured</span><span class="mid" style="color:var(--meas)">${fmt(f.meas, 1)} m</span></div><div><span class="label">Error</span><span class="mid" style="color:var(${cls})">${f.err >= 0 ? "+" : ""}${fmt(f.err, 1)}%</span></div></div>
+    <p style="margin:0;color:#c6d8ec">${Math.abs(f.err) <= 4 ? "The model already matches reality. Try a bolder design." : `Reality disagreed. The white points are what the sensors measured. The gap is drag the model didn’t know about.`}</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="hbtn" id="r-close" type="button">Keep designing</button>${Math.abs(f.err) > 2 ? `<button class="hbtn go" id="r-fix" type="button">Let it learn</button>` : ""}</div>`;
+  learnText(); tab("data");
+  $("result").classList.add("show"); $("r-close").onclick = () => { $("result").classList.remove("show"); orbit.goal = home(); };
+  const fx = $("r-fix"); if (fx) fx.onclick = learn;
+}
+function resample(sm, n) { const T = sm[sm.length - 1].t, out = []; for (let i = 0; i <= n; i++) { const t = T * i / n, j = Math.min(sm.length - 1, Math.round(t / SAMPLE)); out.push(sm[j]); } return out; }
+function learn() {
+  const f = S.flight, cd0 = S.pred.cd, newCal = fitCal(S.hist), cd = aero(f.d).cdGeom * newCal;
+  const before = resample(S.pred.samples, 160); S.cal = newCal; recompute(); const after = resample(S.pred.samples, 160);
+  S.morph = { before, after, t0: performance.now(), cd0, cd1: cd }; pushGhost(before);
+  $("result").innerHTML = `<div class="label">The model is learning</div><div class="row"><span class="mid" style="color:var(--muted);text-decoration:line-through">Cd ${fmt(cd0, 2)}</span><span class="big" id="cd-live" style="color:var(--accent)">${fmt(cd0, 2)}</span></div>
+    <p style="margin:0;color:#c6d8ec">Least-squares fit of drag to every measured point from all ${S.hist.length} flight${S.hist.length > 1 ? "s" : ""} so far. The orange prediction now bends onto the data, and every future design inherits the correction.</p>
+    <div style="display:flex;justify-content:flex-end"><button class="hbtn go" id="r-again" type="button">Design the next one</button></div>`;
+  $("r-again").onclick = () => { $("result").classList.remove("show"); orbit.goal = home(); };
+  f.learned = true; f.cd0 = cd0; f.cd1 = cd; learnText(); tab("learn");
+  const it = S.iters[S.cur]; if (it) it.note = `learned Cd ${fmt(cd, 2)}`; timeline(); hud();
+}
+$("btn-launch").addEventListener("click", launch);
+addEventListener("keydown", e => { if (document.activeElement === $("ask")) return; if (e.code === "Space") { e.preventDefault(); launch(); } if (e.key === "e" || e.key === "E") explore(); });
+const home = () => ({ target: new THREE.Vector3(-0.45, 1.05, 0), dist: 6.2, az: -.18, el: .22 });
+
+/* ================= Command bar (+ ground station AI when online) ================= */
+const API = { base: new URLSearchParams(location.search).get("api") ?? (location.protocol.startsWith("http") ? "" : null) };
+function solveV0(d, target) { let lo = 3, hi = 60; for (let i = 0; i < 22; i++) { const m = (lo + hi) / 2; if (simulate({ ...d, v0: m }, { dt: .004 }).apogee < target) lo = m; else hi = m; } return Math.round((lo + hi) / 2 * 2) / 2; }
+function rules(text, base) {
+  const t = text.toLowerCase(), d = { ...base }; let hit = [];
+  if (/tiny fin|small fin|no fin/.test(t)) { Object.assign(d, { cr: 3, ct: 1.5, span: 1.2, sweep: 1, fcPos: 70 }); hit.push("tiny fins"); }
+  if (/stable|wind|straight/.test(t) && !/tiny/.test(t)) { Object.assign(d, { span: Math.max(d.span, 6.5), cr: Math.max(d.cr, 8), fcPos: 16 }); hit.push("more stable"); }
+  if (/(big|bigger|large|larger|huge) fins?/.test(t)) { Object.assign(d, { span: Math.min(10, d.span + 2), cr: Math.min(12, d.cr + 1.5) }); hit.push("bigger fins"); }
+  if (/light/.test(t)) { d.massAf = 8; hit.push("lighter"); }
+  if (/heav/.test(t)) { d.massAf = 60; hit.push("heavier"); }
+  if (/cone/.test(t)) { d.nose = "cone"; hit.push("cone nose"); } if (/ogive|round/.test(t)) { d.nose = "ogive"; hit.push("ogive nose"); }
+  if (/3 fins|three fins/.test(t)) { d.finN = 3; hit.push("3 fins"); } if (/4 fins|four fins/.test(t)) { d.finN = 4; hit.push("4 fins"); }
+  if (/long|tall/.test(t)) { d.bodyLen = Math.min(60, d.bodyLen + 12); hit.push("longer"); } if (/short/.test(t)) { d.bodyLen = Math.max(12, d.bodyLen - 10); hit.push("shorter"); }
+  if (/fat|wide|wider/.test(t)) { d.dia = Math.min(8, d.dia + 1.5); hit.push("wider"); } if (/thin|slim|skinny/.test(t)) { d.dia = Math.max(2, d.dia - 1.5); hit.push("slimmer"); }
+  const m = t.match(/(\d+(?:\.\d+)?)\s*(m|metre|meter|metres|meters)\b/); if (m) { d.v0 = clamp(solveV0(d, +m[1]), 5, 35); hit.push(`aim ${m[1]} m`); }
+  return hit.length ? { d, note: hit.join(", ") } : null;
+}
+async function ask() {
+  const text = $("ask").value.trim(); if (!text) return; let r = rules(text, S.d);
+  if (!r && API.base !== null) try { const res = await fetch(API.base + "/design", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: text, design: S.d }) }); const j = await res.json(); if (j.source === "agent") r = { d: { ...S.d, ...j.design }, note: text.slice(0, 22) }; } catch {}
+  if (!r) { toast("Try: “reach 20 m”, “tiny fins”, “lighter”, “cone nose”, “more stable”"); return; }
+  setDesign(r.d, true, r.note); $("ask").value = ""; $("ask").blur(); toast(`${r.note} → ${fmt(S.pred.apogee, 1)} m`);
+}
+$("ask").addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+$("btn-mic").addEventListener("click", () => { const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) { toast("Voice needs Chrome, or Mission Control with Deepgram."); return; }
+  const r = new SR(); r.lang = "en-US"; r.onresult = e => { $("ask").value = e.results[0][0].transcript; ask(); }; r.start(); toast("Listening…"); });
+$("btn-reset").addEventListener("click", () => { ghostG.clear(); S.cal = 1; setDesign(DEFAULT, false, "reset"); orbit.goal = home(); });
+
+/* ================= Engineering console (precise controls, charts, debrief) ================= */
+const CTL = [["Airframe", [["bodyLen", "Body length", "cm", .5], ["dia", "Diameter", "cm", .1], ["nose", [["ogive", "Ogive"], ["cone", "Cone"]]], ["noseLen", "Nose length", "cm", .5]]],
+  ["Fins", [["finN", [["3", "3 fins"], ["4", "4 fins"]]], ["cr", "Root chord", "cm", .5], ["ct", "Tip chord", "cm", .5], ["span", "Span", "cm", .1], ["sweep", "Sweep", "cm", .5]]],
+  ["Mass", [["massAf", "Airframe", "g", 1], ["massFc", "Flight computer", "g", 1], ["fcPos", "Computer position", "% from nose", 1]]]];
+(function buildConsole() {
+  const host = $("p-build");
+  host.innerHTML = CTL.map(([t, rows]) => `<div class="grp"><div class="label">${t}</div>${rows.map(r => Array.isArray(r[1])
+    ? `<div class="seg" data-k="${r[0]}">${r[1].map(([v, l]) => `<button type="button" data-v="${v}">${l}</button>`).join("")}</div>`
+    : `<div class="sl"><div class="row"><span style="font-size:13px">${r[1]}</span><span id="cv-${r[0]}" class="mono" style="font:500 12px var(--mono)"></span></div><input type="range" id="c-${r[0]}" min="${LIM[r[0]][0]}" max="${LIM[r[0]][1]}" step="${r[3]}" aria-label="${r[1]}"></div>`).join("")}</div>`).join("") + `<div class="lesson" id="b-lesson"></div>`;
+  for (const [, rows] of CTL) for (const r of rows) {
+    if (Array.isArray(r[1])) host.querySelector(`[data-k="${r[0]}"]`).addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; setDesign({ ...S.d, [r[0]]: r[0] === "finN" ? +b.dataset.v : b.dataset.v }, true, `${r[0] === "finN" ? b.dataset.v + " fins" : b.dataset.v + " nose"}`); });
+    else { const el = $("c-" + r[0]); let started = false;
+      el.addEventListener("input", () => { if (!started) { pushGhost(S.pred.samples); started = true; } S.d[r[0]] = +el.value; recompute(true); buildRocket(); buildFlight(); placeRocketTags(); hud(); });
+      el.addEventListener("change", () => { started = false; recompute(); buildRocket(); buildFlight(); commit(r[1].toLowerCase()); hud(); }); }
+  }
+  document.querySelectorAll("#con .tabs button").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll("#con .tabs button").forEach(x => x.setAttribute("aria-selected", String(x === b)));
+    for (const p of ["build", "data", "learn"]) $("p-" + p).hidden = p !== b.dataset.p; drawCharts(); }));
+})();
+function tab(p) { document.querySelector(`#con .tabs [data-p="${p}"]`).click(); }
+function syncConsole() {
+  for (const [, rows] of CTL) for (const r of rows) {
+    if (Array.isArray(r[1])) document.querySelectorAll(`[data-k="${r[0]}"] button`).forEach(b => b.setAttribute("aria-pressed", String(String(S.d[r[0]]) === b.dataset.v)));
+    else { const el = $("c-" + r[0]); if (document.activeElement !== el) el.value = S.d[r[0]]; $("cv-" + r[0]).textContent = fmt(S.d[r[0]], r[3] < 1 ? 1 : 0) + " " + r[2]; }
+  }
+  const c = S.pred.cal; $("b-lesson").innerHTML = c < 0 ? "<b>Unstable.</b> The centre of pressure is ahead of the centre of gravity, so this rocket will tumble. Grow the fins or move the computer toward the nose."
+    : c < 1 ? "<b>Marginal.</b> Stable, but only just. Rocketeers aim for at least 1 body diameter between CG and CP."
+    : c <= 2.5 ? "<b>Stable.</b> If it tilts, air pushing on the fins swings it back, like a weathervane." : "<b>Very stable.</b> It will turn hard into the wind. Raise the wind and watch the flight path bend.";
+}
+function chart(cv, series, yl) {
+  if (!cv.offsetParent) return; const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1; cv.width = r.width * dpr; cv.height = r.height * dpr;
+  const x = cv.getContext("2d"); x.setTransform(dpr, 0, 0, dpr, 0, 0); const w = r.width, h = r.height; let tm = .5, ym = .5;
+  for (const s of series) for (const p of s.pts) { tm = Math.max(tm, p[0]); ym = Math.max(ym, p[1]); } ym *= 1.1;
+  const X = t => 30 + t / tm * (w - 38), Y = v => h - 18 - v / ym * (h - 26);
+  x.strokeStyle = "rgba(88,225,255,.12)"; x.fillStyle = "#6a86a6"; x.font = "10px IBM Plex Mono, monospace"; x.textAlign = "right";
+  const st = ym > 20 ? 10 : ym > 8 ? 5 : 2; for (let v = 0; v <= ym; v += st) { x.beginPath(); x.moveTo(30, Y(v)); x.lineTo(w - 8, Y(v)); x.stroke(); x.fillText(v, 26, Y(v) + 3); }
+  x.textAlign = "left"; x.fillText(yl, 34, 10); x.textAlign = "right"; x.fillText(fmt(tm, 1) + " s", w - 8, h - 4);
+  for (const s of series) { x.save(); x.globalAlpha = s.a ?? 1; x.strokeStyle = x.fillStyle = s.c; x.lineWidth = s.w || 2; x.setLineDash(s.dash || []);
+    if (s.dots) for (const p of s.pts) { x.beginPath(); x.arc(X(p[0]), Y(p[1]), 1.6, 0, 7); x.fill(); }
+    else { x.beginPath(); s.pts.forEach((p, i) => i ? x.lineTo(X(p[0]), Y(p[1])) : x.moveTo(X(p[0]), Y(p[1]))); x.stroke(); } x.restore(); }
+}
+function drawCharts() {
+  if ($("p-data").hidden) return; const P = S.pred.samples, G = S.ghosts.slice(-4);
+  const alt = [...G.map((g, i) => ({ pts: g.map(s => [s.t, s.z]), c: "#58e1ff", dash: [4, 4], w: 1.2, a: .25 + .15 * i }))];
+  if (S.flight?.pts && S.phase !== "flying") alt.push({ pts: S.flight.pts.filter((_, i) => i % 3 === 0).map(p => [p.t, p.z]), c: "#e8f4ff", dots: true });
+  alt.push({ pts: P.map(s => [s.t, s.z]), c: "#ff7a3d", w: 2.4 });
+  chart($("ch-alt"), alt, "altitude, m"); chart($("ch-spd"), [{ pts: P.map(s => [s.t, s.v]), c: "#ff7a3d", w: 2.4 }], "speed, m/s");
+  const mx = Math.max(...P.map(s => s.v));
+  $("d-stats").innerHTML = `Apogee <b>${fmt(S.pred.apogee, 1)} m</b> at ${fmt(S.pred.tApogee, 2)} s · lands after ${fmt(S.pred.tFlight, 2)} s · top speed ${fmt(mx, 1)} m/s · Cd ${fmt(S.pred.cd, 2)}${S.cal !== 1 ? ` (learned ×${fmt(S.cal, 2)})` : " (shape estimate)"}`;
+}
+function learnText() {
+  const f = S.flight; if (!f?.meas) { $("learn-body").innerHTML = `<div class="lesson">Launch the rocket (<b>Space</b>) to get flight data. Liftoff will compare its prediction with what the sensors measure and explain the gap.</div>`; return; }
+  const lower = f.err < 0, a = Math.abs(f.err);
+  $("learn-body").innerHTML = `<div class="lesson"><div class="label" style="color:var(--holo)">Flight debrief</div>
+    <p style="margin:4px 0">Predicted <b>${fmt(f.pred.apogee, 1)} m</b>, measured <b>${fmt(f.meas, 1)} m</b>: ${fmt(a, 1)}% ${lower ? "lower" : "higher"}.</p>
+    <p style="margin:4px 0">${a < 4 ? "That is within sensor noise. The model already describes this rocket well." : lower ? "The likely cause is drag. It removes the most energy right after launch, when the rocket is fastest. Fin edges, seams and the nose joint add drag a shape-based estimate misses." : "It flew higher than expected, so the real drag is lower than the estimate."}</p>
+    <p style="margin:4px 0">${f.learned ? `After learning, Cd went from <b>${fmt(f.cd0, 2)}</b> to <b>${fmt(f.cd1, 2)}</b>. Every new design now uses it. Your next hypothesis: <b>${fmt(S.pred.apogee, 1)} m</b>.` : `Press <b>Let it learn</b> to fit the drag coefficient to the data.`}</p></div>`;
+}
+
+/* ================= Render loop ================= */
+function resize() { R3.setSize(innerWidth, innerHeight, false); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); }
+addEventListener("resize", resize); resize();
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let last = 0;
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000 || 0); last = now; U.time.value = now / 1000;
+  if (orbit.goal) { const g = orbit.goal, k = 1 - Math.pow(.04, dt); orbit.target.lerp(g.target, k); orbit.dist = lerp(orbit.dist, g.dist, k); orbit.az = lerp(orbit.az, g.az, k); orbit.el = lerp(orbit.el, g.el, k); }
+  else if (!drag && !orbitDrag && S.phase !== "flying" && !reduce) orbit.az += dt * .02 * Math.sin(now / 9000);
+  cam.position.set(orbit.target.x + orbit.dist * Math.cos(orbit.el) * Math.sin(orbit.az), orbit.target.y + orbit.dist * Math.sin(orbit.el), orbit.target.z + orbit.dist * Math.cos(orbit.el) * Math.cos(orbit.az)); cam.lookAt(orbit.target);
+  // wind
+  const wp = windGeo.attributes.position.array, ws = S.d.wind * FS * 1.2 + .02; windPts.material.opacity = S.d.wind > 0 ? .45 : .12;
+  for (let i = 0; i < WN; i++) { wp[i * 3] += ws * dt * (0.7 + (i % 5) * .1); if (wp[i * 3] > 2.6) wp[i * 3] = -.6; } windGeo.attributes.position.needsUpdate = true;
+  // flight
+  if (S.phase === "flying") {
+    const f = S.flight, t = Math.max(0, (now - S.t0) / 1000), sm = f.truth.samples, i = Math.min(sm.length - 1, Math.floor(t / SAMPLE)), s = sm[i];
+    flyer.position.copy(toV(s)); flyer.rotation.set(0, 0, s.th - Math.PI / 2);
+    const mp = measPts.geometry.attributes.position.array; for (let j = 0; j <= Math.min(i, f.pts.length - 1); j += 1) { const p = f.pts[j]; mp[j * 3] = p.x * FS; mp[j * 3 + 1] = p.z * FS; mp[j * 3 + 2] = .01; } measPts.geometry.attributes.position.needsUpdate = true;
+    if (t < .35 || s.z > .5) for (let k = 0; k < 3; k++) { exPos.set([flyer.position.x + gauss() * .01, flyer.position.y - .02, gauss() * .01], exI * 3); exLife[exI] = 1; exI = (exI + 1) % EX; }
+    if (i >= sm.length - 1) { flyer.visible = false; landed(); }
+  }
+  for (let k = 0; k < EX; k++) if (exLife[k] > 0) { exLife[k] -= dt * 1.6; exPos[k * 3 + 1] -= dt * .05; if (exLife[k] <= 0) exPos[k * 3 + 1] = -99; } exGeo.attributes.position.needsUpdate = true;
+  exPts.material.opacity = .9;
+  // learning morph
+  if (S.morph) { const m = S.morph, k = clamp((now - m.t0) / 1600, 0, 1), e = k * k * (3 - 2 * k);
+    const mix = m.before.map((b, i) => ({ t: b.t, x: lerp(b.x, m.after[i].x, e), z: lerp(b.z, m.after[i].z, e) })); buildFlight(mix);
+    const el = $("cd-live"); if (el) el.textContent = fmt(lerp(m.cd0, m.cd1, e), 2);
+    if (k >= 1) { S.morph = null; buildFlight(); } }
+  R3.render(scene, cam);
+  for (const t of Object.values(tags)) projTag(t); (S.variants || []).forEach(v => projTag(v.tag));
+  requestAnimationFrame(frame);
+}
+
+/* ================= Boot ================= */
+recompute(); buildRocket(); buildFlight(); placeRocketTags(); hud(); learnText(); commit("first design");
+setTimeout(() => { $("hint").style.opacity = 0; }, 9000);
+requestAnimationFrame(frame);
+})();
+</script>
